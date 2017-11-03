@@ -15,6 +15,7 @@ module Hpack.Util (
 , expandGlobs
 , sort
 , lexicographically
+, die
 ) where
 
 import           Prelude ()
@@ -148,3 +149,6 @@ expandGlobs name dir patterns = do
       , pathSepInRanges = False
       , errorRecovery = True
       }
+
+die :: String -> IO a
+die = throwIO . ErrorCall

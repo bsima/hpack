@@ -1,4 +1,4 @@
--- This file has been generated from package.yaml by hpack version 0.19.1.
+-- This file has been generated from package.yaml by hpack version 0.19.3.
 --
 -- see: https://github.com/sol/hpack
 
@@ -38,6 +38,9 @@ library
     , deepseq
     , directory
     , filepath
+    , http-client
+    , http-client-tls
+    , http-types
     , pretty
     , text
     , unordered-containers
@@ -49,6 +52,7 @@ library
       Hpack.Yaml
   other-modules:
       Hpack.Dependency
+      Hpack.Extension
       Hpack.FormattingHints
       Hpack.GenericsUtil
       Hpack.Haskell
@@ -76,6 +80,9 @@ executable hpack
     , directory
     , filepath
     , hpack
+    , http-client
+    , http-client-tls
+    , http-types
     , pretty
     , text
     , unordered-containers
@@ -107,6 +114,9 @@ test-suite spec
     , directory
     , filepath
     , hspec ==2.*
+    , http-client
+    , http-client-tls
+    , http-types
     , interpolate
     , mockery >=0.3
     , pretty
@@ -119,6 +129,7 @@ test-suite spec
       Helper
       Hpack.ConfigSpec
       Hpack.DependencySpec
+      Hpack.ExtensionSpec
       Hpack.FormattingHintsSpec
       Hpack.GenericsUtilSpec
       Hpack.HaskellSpec
@@ -130,6 +141,7 @@ test-suite spec
       Hpack
       Hpack.Config
       Hpack.Dependency
+      Hpack.Extension
       Hpack.FormattingHints
       Hpack.GenericsUtil
       Hpack.Haskell

@@ -1,3 +1,4 @@
+-- TODO: remove all tests that do actual HTTP requuests
 {-# LANGUAGE DefaultSignatures #-}
 {-# LANGUAGE DeriveFoldable #-}
 {-# LANGUAGE DeriveFunctor #-}
@@ -69,6 +70,7 @@ import           System.FilePath
 
 import           Hpack.GenericsUtil
 import           Hpack.Util
+import           Hpack.Extension
 import           Hpack.Yaml
 import           Hpack.Dependency
 
@@ -234,7 +236,8 @@ instance FromJSON ExecutableSection where
   parseJSON = genericParseJSON_
 
 data CommonOptions a = CommonOptions {
-  commonOptionsSourceDirs :: Maybe (List FilePath)
+  commonOptionsDefaults :: Maybe FilePath
+, commonOptionsSourceDirs :: Maybe (List FilePath)
 , commonOptionsDependencies :: Maybe Dependencies
 , commonOptionsDefaultExtensions :: Maybe (List String)
 , commonOptionsOtherExtensions :: Maybe (List String)
@@ -398,12 +401,13 @@ isNull name value = case parseMaybe p value of
 
 readPackageConfig :: FilePath -> IO (Either String ([String], Package))
 readPackageConfig file = do
+  userDataDir <- getAppUserDataDirectory "hpack"
   r <- decodeYaml file
   case r of
     Left err -> return (Left err)
     Right config -> do
       dir <- takeDirectory <$> canonicalizePath file
-      Right <$> toPackage dir config
+      toPackage userDataDir dir config
 
 data Package = Package {
   packageName :: String
@@ -474,6 +478,32 @@ data Section a = Section {
 , sectionBuildTools :: Dependencies
 } deriving (Eq, Show, Functor, Foldable, Traversable)
 
+emptySection :: Section Empty
+emptySection = Section {
+  sectionData = Empty
+, sectionSourceDirs = []
+, sectionDependencies = mempty
+, sectionDefaultExtensions = []
+, sectionOtherExtensions = []
+, sectionGhcOptions = []
+, sectionGhcProfOptions = []
+, sectionGhcjsOptions = []
+, sectionCppOptions = []
+, sectionCcOptions = []
+, sectionCSources = []
+, sectionJsSources = []
+, sectionExtraLibDirs = []
+, sectionExtraLibraries = []
+, sectionExtraFrameworksDirs = []
+, sectionFrameworks = []
+, sectionIncludeDirs = []
+, sectionInstallIncludes = []
+, sectionLdOptions = []
+, sectionBuildable = Nothing
+, sectionConditionals = []
+, sectionBuildTools = mempty
+}
+
 data Conditional a = Conditional {
   conditionalCondition :: String
 , conditionalThen :: a
@@ -514,8 +544,27 @@ toEmptySection :: CaptureUnknownFields (Product (CommonOptions Empty) a) -> Capt
 toEmptySection (CaptureUnknownFields unknownSectionFields (Product common a)) = case toSection_ Empty common of
   (unknownFields, sect) -> CaptureUnknownFields (unknownSectionFields ++ unknownFields) (sect, a)
 
-toPackage :: FilePath -> (CaptureUnknownFields (Product (CommonOptions Empty) PackageConfig)) -> IO ([String], Package)
-toPackage dir (toEmptySection -> CaptureUnknownFields unknownFields (globalOptions, PackageConfig{..})) = do
+toPackage :: FilePath -> FilePath -> (CaptureUnknownFields (Product (CommonOptions Empty) PackageConfig)) -> IO (Either String ([String], Package))
+toPackage userDataDir dir config@CaptureUnknownFields{captureUnknownFieldsValue = Product global _} = do
+  getDefaults userDataDir global >>= \ case
+    Left err -> return (Left err)
+    Right (warnings, defaults) -> do
+      let
+        addDefaults :: Section Empty -> Section Empty
+        addDefaults = mergeSections Empty defaults
+      Right . first (++ warnings) <$> toPackage_ dir (first addDefaults <$> toEmptySection config)
+
+getDefaults :: FilePath -> CommonOptions global -> IO (Either String ([String], Section Empty))
+getDefaults userDataDir CommonOptions{..} = case commonOptionsDefaults of
+  Nothing -> return (Right ([], emptySection))
+  Just d -> join <$> (ensure userDataDir d >>= traverse decode)
+  where
+    decode file = do
+      -- FIXME: don't allow includes?!
+      second (formatUnknownFields file . toSection) <$> decodeYaml file
+
+toPackage_ :: FilePath -> (CaptureUnknownFields (Section Empty, PackageConfig)) -> IO ([String], Package)
+toPackage_ dir (CaptureUnknownFields unknownFields (globalOptions, PackageConfig{..})) = do
   libraryResult <- mapM (toLibrary dir packageName_ globalOptions) mLibrarySection
   let
     packageConfigExecutables_ :: Maybe (Map String (CaptureUnknownFields (Section ExecutableSection)))

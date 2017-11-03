@@ -7,11 +7,11 @@ module EndToEndSpec (spec) where
 
 import           Helper
 
-import           System.Exit.Compat
 import           Data.Maybe
 import           Data.List
 import           Data.String.Interpolate
 import           Data.String.Interpolate.Util
+import           System.Environment
 
 import qualified Hpack.Run as Hpack
 import           Hpack.Config (packageConfig, readPackageConfig)
@@ -20,6 +20,65 @@ import           Hpack.FormattingHints (FormattingHints(..), sniffFormattingHint
 spec :: Spec
 spec = around_ (inTempDirectoryNamed "foo") $ do
   describe "hpack" $ do
+    context "with defaults" $ do
+      it "accepts defaults" $ do
+        [i|
+        defaults: sol-2017
+        library: {}
+        |] `shouldRenderTo` library [i|
+        other-modules:
+            Paths_foo
+        default-extensions: RecordWildCards DeriveFunctor
+        |]
+
+      it "fails if defaults don't exist" $ do
+        [i|
+        defaults: foo-bar
+        library: {}
+        |] `shouldFailWith` "Invalid value \"foo-bar\" for \"defaults\"! (file https://raw.githubusercontent.com/foo/hpack-template/bar/defaults.yaml does not exist)"
+
+      it "fails on invalid defaults" $ do
+        [i|
+        defaults: foo-
+        library: {}
+        |] `shouldFailWith` "Invalid value \"foo-\" for \"defaults\"!"
+
+      it "fails on parse error" $ do
+        home <- getEnv "HOME" -- FIXME
+        writeFile (home </> ".hpack/defaults/sol-foo") "[]"
+        [i|
+        defaults: sol-foo
+        library: {}
+        |] `shouldFailWith` "/home/sol/.hpack/defaults/sol-foo: Error in $: expected record (:*:), encountered Array"
+
+      it "warns on unknown fields" $ do
+        home <- getEnv "HOME" -- FIXME
+        let file = home </> ".hpack" </> "defaults" </> "sol-foo"
+        writeFile file [i|
+        foo: bar
+        |]
+
+        [i|
+        defaults: sol-foo
+        name: foo
+        library: {}
+        |] `shouldWarn` ["Ignoring unknown field \"foo\" in " ++ file]
+
+      it "warns on unknown fields in conditional" $ do
+        home <- getEnv "HOME" -- FIXME
+        let file = home </> ".hpack" </> "defaults" </> "sol-foo"
+        writeFile file [i|
+        when:
+          condition: os(windows)
+          foo: bar
+        |]
+
+        [i|
+        defaults: sol-foo
+        name: foo
+        library: {}
+        |] `shouldWarn` ["Ignoring unknown field \"foo\" in " ++ file]
+
     context "with custom-setup" $ do
       it "warns on unknown fields" $ do
         [i|
@@ -183,7 +242,7 @@ spec = around_ (inTempDirectoryNamed "foo") $ do
                 windows
           |]
 
-run :: FilePath -> String -> IO ([String], String)
+run :: FilePath -> String -> IO (Either String ([String], String))
 run c old = do
   mPackage <- readPackageConfig c
   case mPackage of
@@ -193,8 +252,8 @@ run c old = do
         alignment = fromMaybe 0 formattingHintsAlignment
         settings = formattingHintsRenderSettings
         output = Hpack.renderPackage settings alignment formattingHintsFieldOrder formattingHintsSectionsFieldOrder pkg
-      return (warnings, output)
-    Left err -> die err
+      return (Right $ (warnings, output))
+    Left err -> return (Left err)
 
 newtype PlainString = PlainString String
   deriving Eq
@@ -205,7 +264,7 @@ instance Show PlainString where
 shouldRenderTo :: HasCallStack => String -> Package -> Expectation
 shouldRenderTo input p = do
   writeFile packageConfig input
-  (_ , output) <- run packageConfig expected
+  Right (_ , output) <- run packageConfig expected
   PlainString (dropEmptyLines output) `shouldBe` PlainString expected
   where
     expected = dropEmptyLines (renderPackage p)
@@ -214,8 +273,15 @@ shouldRenderTo input p = do
 shouldWarn :: HasCallStack => String -> [String] -> Expectation
 shouldWarn input expected = do
   writeFile packageConfig input
-  (warnings, _) <- run packageConfig ""
+  Right (warnings, _) <- run packageConfig ""
   sort warnings `shouldBe` sort expected
+
+shouldFailWith :: HasCallStack => String -> String -> Expectation
+shouldFailWith input expected = do
+  writeFile packageConfig input
+  run packageConfig "" >>= \ case
+    Right (_, output) -> expectationFailure output
+    Left err -> err `shouldBe` expected
 
 customSetup :: String -> Package
 customSetup a = (package content) {packageCabalVersion = ">= 1.24", packageBuildType = "Custom"}

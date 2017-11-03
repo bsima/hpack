@@ -27,6 +27,9 @@ dependencies:
   - Cabal
   - pretty
   - bifunctors
+  - http-types
+  - http-client
+  - http-client-tls
 
 library:
   source-dirs: src
